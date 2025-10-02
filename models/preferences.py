@@ -43,8 +43,8 @@ class PreferencesBase(BaseModel):
         description="Flexible additional preferences so we're not limiting what preferences the user can enter.",
         json_schema_extra={"example": {"nice_view": True}},
     )
-    model_config = ConfigDict(
-        json_schema_extra={
+    model_config = {
+        "json_schema_extra": {
             "examples": [
                 {
                     "environment": "quiet",
@@ -57,21 +57,21 @@ class PreferencesBase(BaseModel):
                 }
             ]
         }
-    )
+    }
 
-    class PreferencesCreate(PreferencesBase):
-        """Payload for creating preferences. No additional fields added, just iherit base"""
-        pass 
+class PreferencesCreate(PreferencesBase):
+    """Payload for creating preferences. No additional fields added, just iherit base"""
+    pass 
 
-    class PreferencesUpdate(BaseModel):
-        """Partial update for preferences (only send fields to change)"""
-        environment: Optional[Literal["quiet", "lively", "moderate"]] = None
-        wifi_required: Optional[bool] = None
-        open_late: Optional[bool] = None
-        refreshments_available: Optional[bool] = None
-        food_available: Optional[bool] = None
-        outlets_available: Optional[bool] = None
-        other_preferences: Optional[Dict[str, Any]] = None
+class PreferencesUpdate(BaseModel):
+    """Partial update for preferences (only send fields to change)"""
+    environment: Optional[Literal["quiet", "lively", "moderate"]] = None
+    wifi_required: Optional[bool] = None
+    open_late: Optional[bool] = None
+    refreshments_available: Optional[bool] = None
+    food_available: Optional[bool] = None
+    outlets_available: Optional[bool] = None
+    other_preferences: Optional[Dict[str, Any]] = None
 
 class PreferencesRead(PreferencesBase):
     id: UUID = Field(default_factory=uuid4, description="Preferences ID")

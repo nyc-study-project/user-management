@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Optional
 from uuid import UUID, uuid4
 from datetime import datetime
-from pydantic import BaseModel, Field, StringConstraints, EmailStr, ConfigDict
+from pydantic import BaseModel, Field, StringConstraints
 from typing_extensions import Annotated
 
 # Username alphanumeric, 3–20 chars
@@ -32,8 +32,8 @@ class UserBase(BaseModel):
         json_schema_extra={"example": "Brooklyn"},
     )
 
-    model_config = ConfigDict(
-        json_schema_extra={
+    model_config = {
+        "json_schema_extra": {
             "examples": [
                 {
                     "username": "student123",
@@ -43,7 +43,7 @@ class UserBase(BaseModel):
                 }
             ]
         }
-    )
+    }
 
 
 class UserCreate(UserBase):
