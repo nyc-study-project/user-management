@@ -46,3 +46,8 @@ As of Sprint 1, it currently has 3 models and their respective endpoints, all of
 - POST /auth/login → Login with username & password (creates session)
 - POST /auth/logout → Logout (invalidates session)
 - GET /auth/me → Get the current authenticated user
+
+## Sprint 1
+For sprint 1, this mircoservice is currently deployed on our VM where you can view the OpenAPI doc:
+
+<img width="1421" height="798" alt="Screenshot 2025-10-03 at 3 29 30 PM" src="https://github.com/user-attachments/assets/9a702f91-7fdf-45e6-bf5b-e7fbcad797d1" />
