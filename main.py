@@ -8,7 +8,7 @@ from datetime import datetime
 from typing import Dict, List
 from uuid import UUID
 
-from fastapi import FastAPI, HTTPException, Query, Path, Response
+from fastapi import FastAPI, HTTPException, Query, Path, Response, Header, status
 from typing import Optional
 import bcrypt
 
@@ -86,13 +86,40 @@ def get_user(id: UUID, response: Response):
     response.headers["ETag"] = etag
     return user
 
-@app.put("/users/{id}")
-def update_user(id: UUID):
-    raise HTTPException(status_code=501, detail="Not implemented: Update user profile")
+@app.put("/users/{id}", response_model=UserRead)
+def update_user(
+    id: UUID,
+    user_update: UserUpdate,
+    if_match: Optional[str] = Header(None, alias="If-Match")
+):
+    """Update a user if ETag matches."""
+    user = users_db.get(id) # fetch user
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    current_etag = generate_etag(user) # current ETag
+    if if_match and if_match != current_etag: # do not update if the resources has been modified since you fetched it
+        raise HTTPException(status_code=412, detail="ETag mismatch (resource modified)")
+    
+    updated_data = user.model_dump()
+    for key, value in user_update.model_dump(exclude_unset=True).items():
+        updated_data[key] = value
+    updated_data["updated_at"] = datetime.utcnow()
 
-@app.delete("/users/{id}")
+    new_user = UserRead(**updated_data)
+    users_db[id] = new_user
+    return new_user
+
+
+@app.delete("/users/{id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_user(id: UUID):
-    raise HTTPException(status_code=501, detail="Not implemented: Delete user profile and associated preferences and sessions")
+    """Delete a user profile."""
+    if id not in users_db:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    del users_db[id]
+    password_hashes.pop(id, None)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 @app.get("/users", response_model=List[UserRead])
 def list_users(skip: int = Query(0, ge=0),
