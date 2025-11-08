@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import os
 import socket
 from datetime import datetime
@@ -7,9 +8,9 @@ from datetime import datetime
 from typing import Dict, List
 from uuid import UUID
 
-from fastapi import FastAPI, HTTPException
-from fastapi import Query, Path
+from fastapi import FastAPI, HTTPException, Query, Path, Response
 from typing import Optional
+import bcrypt
 
 from models.user import UserCreate, UserRead, UserUpdate
 from models.preferences import PreferencesRead, PreferencesCreate, PreferencesUpdate
@@ -24,12 +25,66 @@ app = FastAPI(
 )
 
 # -----------------------------------------------------------------------------
+# In-memory storage (simulates DB) for testing
+# -----------------------------------------------------------------------------
+users_db: Dict[UUID, UserRead] = {}
+password_hashes: Dict[UUID, bytes] = {}  # user_id -> password hash
+
+
+# -----------------------------------------------------------------------------
+# Utility helpers
+# -----------------------------------------------------------------------------
+def generate_etag(user: UserRead) -> str:
+    """Create an ETag based on last update timestamp."""
+    return hashlib.sha256(user.updated_at.isoformat().encode()).hexdigest()
+
+def hash_password(password: str) -> bytes:
+    return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt())
+
+def verify_password(password: str, hashed: bytes) -> bool:
+    return bcrypt.checkpw(password.encode("utf-8"), hashed)
+
+
+
+# --- Seeded test users for local development (NOT for production) ---
+# NOTE: These are stored only in-memory and are intended to make manual testing easier.
+# Do NOT commit real credentials to source control.
+test_user = UserRead(
+    username="testuser",
+    age=22,
+    occupation="student",
+    location="Queens",
+)
+users_db[test_user.id] = test_user
+password_hashes[test_user.id] = hash_password("password123")  # example password for local testing
+print(f"[DEV] Seeded test user: username={test_user.username} id={test_user.id}")
+
+test_user2 = UserRead(
+    username="alice99",
+    age=28,
+    occupation="professional",
+    location="Manhattan",
+)
+users_db[test_user2.id] = test_user2
+password_hashes[test_user2.id] = hash_password("s3cr3t")
+print(f"[DEV] Seeded test user: username={test_user2.username} id={test_user2.id}")
+
+
+
+# -----------------------------------------------------------------------------
 # User endpoints
 # -----------------------------------------------------------------------------
 
-@app.get("/users/{id}")
-def get_user(id: UUID):
-    raise HTTPException(status_code=501, detail="Not implemented: Get user profile by ID")
+@app.get("/users/{id}", response_model=UserRead)
+def get_user(id: UUID, response: Response):
+    """Retrieve a user profile by ID with ETag support."""
+    user = users_db.get(id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    etag = generate_etag(user)
+    response.headers["ETag"] = etag
+    return user
 
 @app.put("/users/{id}")
 def update_user(id: UUID):
@@ -39,9 +94,23 @@ def update_user(id: UUID):
 def delete_user(id: UUID):
     raise HTTPException(status_code=501, detail="Not implemented: Delete user profile and associated preferences and sessions")
 
-@app.get("/users")
-def list_users():
-    raise HTTPException(status_code=501, detail="Not implemented: List all users")
+@app.get("/users", response_model=List[UserRead])
+def list_users(skip: int = Query(0, ge=0),
+    limit: int = Query(10, ge=1, le=50),
+    occupation: Optional[str] = Query(None),
+    location: Optional[str] = Query(None),
+    ):
+    """List users with pagination and optional filters."""
+    results = list(users_db.values())
+
+    if occupation:
+        results = [u for u in results if u.occupation == occupation]
+    if location:
+        results = [u for u in results if u.location == location]
+
+    return results[skip : skip + limit]
+
+    
 
 # -----------------------------------------------------------------------------
 # Preferences endpoints
