@@ -219,19 +219,20 @@ def login_user(credentials: LoginRequest):
 
 @app.post("/auth/logout", status_code=204)
 def logout_user(
-    session_token: str = Header(
+    auth: str = Header(
         ...,
-        description="Session ID",
-        example="123e4567-e89b-12d3-a456-426614174000"
+        description="Bearer token containing your session ID",
+        example="Bearer 123e4567-e89b-12d3-a456-426614174000"
     )
 ):
     """Logout user by deleting session."""
-    if not session_token:
+    if not auth:
         raise HTTPException(status_code=400, detail="Missing Authorization header")
 
     # Expect the header to be something like "Bearer <session_id>"
     try:
-        session_id = UUID(session_token)
+        token = auth.split(" ")[1]
+        session_id = UUID(token)
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid Authorization format")
 
@@ -243,9 +244,38 @@ def logout_user(
     #print(sessions_db)
     return Response(status_code=204)
 
-@app.get("/auth/me")
-def get_current_user():
-    raise HTTPException(status_code=501, detail="Not implemented: Return current authenticated user profile")
+@app.get("/auth/me", response_model=UserRead)
+def get_current_user(
+        auth: str = Header(
+        ...,
+        description="Bearer token containing your session ID",
+        example="Bearer 123e4567-e89b-12d3-a456-426614174000"
+    )):
+    """Return the current authenticated user's profile."""
+    if not auth:
+        raise HTTPException(status_code=401, detail="Missing Authorization header")
+    
+    try:
+        token = auth.split(" ")[1]
+        session_id = UUID(token)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid Authorization format")
+
+    session = sessions_db.get(session_id)
+    if not session:
+        raise HTTPException(status_code=401, detail="Invalid or expired session")
+
+    # Check expiry
+    if session.expires_at < datetime.utcnow():
+        del sessions_db[session_id]
+        raise HTTPException(status_code=401, detail="Session expired")
+
+    # Return user info
+    user = users_db.get(session.user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    return user
 
 
 # -----------------------------------------------------------------------------
