@@ -54,6 +54,20 @@ class UserCreate(UserBase):
         json_schema_extra={"example": "StrongP@ssw0rd"},
     )
 
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "username": "student123",
+                    "age": 21,
+                    "occupation": "student",
+                    "location": "Brooklyn",
+                    "password": "StrongP@ssw0rd"
+                }
+            ]
+        }
+    }
+
 '''Contains only the fields that the user is allowed to change'''
 class UserUpdate(BaseModel):
     """Partial update for user profile; supply only fields to change."""

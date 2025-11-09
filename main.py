@@ -8,7 +8,7 @@ from datetime import datetime
 from typing import Dict, List
 from uuid import UUID
 
-from fastapi import FastAPI, HTTPException, Query, Path, Response, Header, status
+from fastapi import FastAPI, HTTPException, Query, Path, Response, Header, status, Body
 from typing import Optional
 import bcrypt
 
@@ -29,6 +29,7 @@ app = FastAPI(
 # -----------------------------------------------------------------------------
 users_db: Dict[UUID, UserRead] = {}
 password_hashes: Dict[UUID, bytes] = {}  # user_id -> password hash
+sessions_db: Dict[UUID, SessionRead] = {}
 
 
 # -----------------------------------------------------------------------------
@@ -159,9 +160,24 @@ def delete_preferences(id: UUID):
 # Session endpoints
 # -----------------------------------------------------------------------------
 
-@app.post("/auth/register")
-def register_user():
-    raise HTTPException(status_code=501, detail="Not implemented: Create new user and hash password")
+@app.post("/auth/register", response_model=UserRead, status_code=201)
+def register_user(user: UserCreate):
+    """Create a new user with hashed password."""
+    # Check if username is already taken
+    if any(u.username == user.username for u in users_db.values()):
+        raise HTTPException(status_code=400, detail="Username already exists")
+    
+    # Create user and hash password
+    new_user = UserRead(
+        username=user.username,
+        age=user.age,
+        occupation=user.occupation,
+        location=user.location,
+    )
+    users_db[new_user.id] = new_user
+    password_hashes[new_user.id] = hash_password(user.password)
+    return new_user
+
 
 @app.post("/auth/login")
 def login_user():
