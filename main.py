@@ -8,13 +8,13 @@ from datetime import datetime
 from typing import Dict, List
 from uuid import UUID
 
-from fastapi import FastAPI, HTTPException, Query, Path, Response, Header, status, Body
+from fastapi import FastAPI, HTTPException, Query, Path, Response, Header, status
 from typing import Optional
 import bcrypt
 
 from models.user import UserCreate, UserRead, UserUpdate
 from models.preferences import PreferencesRead, PreferencesCreate, PreferencesUpdate
-from models.session import SessionCreate, SessionRead
+from models.session import SessionCreate, SessionRead, LoginRequest
 from models.health import Health
 
 port = int(os.environ.get("FASTAPIPORT", 8000))
@@ -162,30 +162,86 @@ def delete_preferences(id: UUID):
 
 @app.post("/auth/register", response_model=UserRead, status_code=201)
 def register_user(user: UserCreate):
-    """Create a new user with hashed password."""
-    # Check if username is already taken
-    if any(u.username == user.username for u in users_db.values()):
-        raise HTTPException(status_code=400, detail="Username already exists")
-    
-    # Create user and hash password
-    new_user = UserRead(
-        username=user.username,
-        age=user.age,
-        occupation=user.occupation,
-        location=user.location,
-    )
-    users_db[new_user.id] = new_user
-    password_hashes[new_user.id] = hash_password(user.password)
-    return new_user
+    try:
+        """Create a new user with hashed password."""
+        # Check if username is already taken
+        if any(u.username == user.username for u in users_db.values()):
+            raise HTTPException(status_code=400, detail="Username already exists")
+        
+        # Create user and hash password
+        new_user = UserRead(
+            username=user.username,
+            age=user.age,
+            occupation=user.occupation,
+            location=user.location,
+        )
+        users_db[new_user.id] = new_user
+        password_hashes[new_user.id] = hash_password(user.password)
+        return new_user
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="Internal server error during registration") from e
 
 
 @app.post("/auth/login")
-def login_user():
-    raise HTTPException(status_code=501, detail="Not implemented: Authenticate user and create session")
+def login_user(credentials: LoginRequest):
+    try:
+        """Authenticate user and create a new session."""
+        username = credentials.username
+        password = credentials.password
 
-@app.post("/auth/logout")
-def logout_user():
-    raise HTTPException(status_code=501, detail="Not implemented: Invalidate current session")
+        if not username or not password:
+            raise HTTPException(status_code=400, detail="Username and password required")
+        
+        # Find user by username
+        user = next((u for u in users_db.values() if u.username == username), None)
+        if not user:
+            raise HTTPException(status_code=401, detail="Invalid credentials")
+        
+        # Verify password
+        hashed_pw = password_hashes.get(user.id)
+        if not hashed_pw or not verify_password(password, hashed_pw):
+            raise HTTPException(status_code=401, detail="Invalid credentials")
+        
+        # Create new session
+        session = SessionRead(user_id=user.id)
+        sessions_db[session.session_id] = session
+
+        #print(sessions_db)
+
+        return {
+            "message": "Login successful",
+            "session_id": str(session.session_id),
+            "expires_at": session.expires_at,
+            "user_id": str(user.id)
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="Internal server error during login") from e
+
+@app.post("/auth/logout", status_code=204)
+def logout_user(
+    session_token: str = Header(
+        ...,
+        description="Session ID",
+        example="123e4567-e89b-12d3-a456-426614174000"
+    )
+):
+    """Logout user by deleting session."""
+    if not session_token:
+        raise HTTPException(status_code=400, detail="Missing Authorization header")
+
+    # Expect the header to be something like "Bearer <session_id>"
+    try:
+        session_id = UUID(session_token)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid Authorization format")
+
+    if session_id not in sessions_db:
+        raise HTTPException(status_code=401, detail="Invalid or expired session")
+
+    # Delete session
+    del sessions_db[session_id]
+    #print(sessions_db)
+    return Response(status_code=204)
 
 @app.get("/auth/me")
 def get_current_user():
