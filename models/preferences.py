@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import Optional
+from typing import  Any, Dict, Literal, Optional
 from uuid import UUID, uuid4
 from datetime import datetime
 from pydantic import BaseModel, Field
@@ -8,70 +8,67 @@ from pydantic import BaseModel, Field
 
 '''Shared core fields for all models, open to changes to these fields since I was a bit unsure about it'''
 class PreferencesBase(BaseModel):
-    environment: Optional[Literal["quiet", "lively", "moderate"]] = Field(
-        None,
-        description="Preferred noise/environment level.",
-        json_schema_extra={"example": "quiet"},
-    )
     wifi_required: Optional[bool] = Field(
         None,
         description="Does the user require WiFi?",
         json_schema_extra={"example": True},
     )
-    open_late: Optional[bool] = Field(
+    outlets_required: Optional[bool] = Field(
+        None, description="Does the user need power outlets?", json_schema_extra={"example": True}
+    )
+    seating_preference: Optional[Literal["1-5", "6-10", "11-20", "20+"]]= Field(
+        None, description="Preferred group size or seating capacity.", json_schema_extra={"example": "1-5"}
+    )
+    refreshments_preferred: Optional[list[str]] = Field(
         None,
-        description="Does the user prefer spots open late?",
-        json_schema_extra={"example": False},
+        description="Preferred refreshments or food availability.",
+        json_schema_extra={"example": ["coffee", "pastries"]},
     )
-    refreshments_available: Optional[bool] = Field(
+    environment: Optional[list[Literal["quiet", "lively", "indoor", "outdoor", "moderate"]]] = Field(
         None,
-        description="Preference for drink availability.",
-        json_schema_extra={"example": True},
+        description="Preferred environment types (noise level, setting).",
+        json_schema_extra={"example": ["quiet", "indoor"]},
     )
-    food_available: Optional[bool] = Field(
-        None,
-        description="Preference for food availability.",
-        json_schema_extra={"example": True},
-    )
-    outlets_available: Optional[bool] = Field(
-        None,
-        description="Preference for power outlets availability.",
-        json_schema_extra={"example": True},
-    )
-    other_preferences: Optional[Dict[str, Any]] = Field(
-        default_factory=dict,
-        description="Flexible additional preferences so we're not limiting what preferences the user can enter.",
-        json_schema_extra={"example": {"nice_view": True}},
-    )
+    #food_available: Optional[bool] = Field(
+        #None,
+        #description="Preference for food availability.",
+        #json_schema_extra={"example": True},
+    #)
+    #other_preferences: Optional[Dict[str, Any]] = Field(
+        #default_factory=dict,
+        #description="Flexible additional preferences so we're not limiting what preferences the user can enter.",
+        #json_schema_extra={"example": {"nice_view": True}},
+    #)
+     #open_late: Optional[bool] = Field(
+       # None,
+       # description="Does the user prefer spots open late?",
+       # json_schema_extra={"example": False},
+    # )
     model_config = {
         "json_schema_extra": {
             "examples": [
                 {
-                    "environment": "quiet",
                     "wifi_required": True,
-                    "open_late": False,
-                    "refreshments_available": True,
-                    "food_available": False,
-                    "outlets_available": True,
-                    "other_preferences": {"plants": True},
+                    "outlets_required": True,
+                    "seating_preference": "1-5",
+                    "refreshments_preferred": ["coffee", "pastries"],
+                    "environment": ["quiet", "indoor"],
                 }
             ]
         }
     }
 
 class PreferencesCreate(PreferencesBase):
-    """Payload for creating preferences. No additional fields added, just iherit base"""
+    """Payload for creating preferences. No additional fields added, just inherit base"""
     pass 
 
 class PreferencesUpdate(BaseModel):
     """Partial update for preferences (only send fields to change)"""
-    environment: Optional[Literal["quiet", "lively", "moderate"]] = None
-    wifi_required: Optional[bool] = None
-    open_late: Optional[bool] = None
-    refreshments_available: Optional[bool] = None
-    food_available: Optional[bool] = None
-    outlets_available: Optional[bool] = None
-    other_preferences: Optional[Dict[str, Any]] = None
+    wifi_required: Optional[bool] = None    
+    outlets_required: Optional[bool] = None
+    seating_preference: Optional[Literal["1-5", "6-10", "11-20", "20+"]] = None
+    refreshments_preferred: Optional[list[str]] = None
+    environment: Optional[list[Literal["quiet", "lively", "indoor", "outdoor", "moderate"]]] = None
 
 class PreferencesRead(PreferencesBase):
     id: UUID = Field(default_factory=uuid4, description="Preferences ID")

@@ -30,6 +30,7 @@ app = FastAPI(
 users_db: Dict[UUID, UserRead] = {}
 password_hashes: Dict[UUID, bytes] = {}  # user_id -> password hash
 sessions_db: Dict[UUID, SessionRead] = {}
+preferences_db: Dict[UUID, PreferencesRead] = {}
 
 
 # -----------------------------------------------------------------------------
@@ -69,6 +70,24 @@ test_user2 = UserRead(
 users_db[test_user2.id] = test_user2
 password_hashes[test_user2.id] = hash_password("s3cr3t")
 print(f"[DEV] Seeded test user: username={test_user2.username} id={test_user2.id}")
+
+preferences_db[test_user.id] = PreferencesRead(
+    user_id=test_user.id,
+    wifi_required=True,
+    outlets_required=True,
+    seating_preference="1-5",
+    refreshments_preferred=["coffee"],
+    environment=["quiet", "indoor"],
+)
+
+preferences_db[test_user2.id] = PreferencesRead(
+    user_id=test_user2.id,
+    wifi_required=False,
+    outlets_required=True,
+    seating_preference="6-10",
+    refreshments_preferred=["water", "pastries"],
+    environment=["lively", "outdoor"],
+)
 
 
 
@@ -144,17 +163,68 @@ def list_users(skip: int = Query(0, ge=0),
 # Preferences endpoints
 # -----------------------------------------------------------------------------
 
-@app.get("/users/{id}/preferences")
+@app.get("/users/{id}/preferences", response_model=PreferencesRead)
 def get_preferences(id: UUID):
-    raise HTTPException(status_code=501, detail="Not implemented: Retrieve preferences for a user")
+    """Retrieve a user's saved preferences."""
+    user = users_db.get(id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
 
-@app.put("/users/{id}/preferences")
-def update_preferences(id: UUID):
-    raise HTTPException(status_code=501, detail="Not implemented: Update preferences for a user")
+    preferences = preferences_db.get(id)
+    if not preferences:
+        raise HTTPException(status_code=404, detail="Preferences not set for this user")
 
-@app.delete("/users/{id}/preferences")
+    return preferences
+
+@app.post("/users/{id}/preferences", response_model=PreferencesRead, status_code=201)
+def create_preferences(id: UUID, prefs: PreferencesCreate):
+    """Create preferences for a user (one-to-one relationship)."""
+    user = users_db.get(id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    if id in preferences_db:
+        raise HTTPException(status_code=400, detail="Preferences already exist for this user")
+
+    new_prefs = PreferencesRead(
+        user_id=id,
+        **prefs.model_dump(exclude_unset=True)
+    )
+    preferences_db[id] = new_prefs
+    return new_prefs
+
+@app.put("/users/{id}/preferences", response_model=PreferencesRead)
+def update_preferences(id: UUID, prefs_update: PreferencesUpdate):
+    """Update existing user preferences."""
+    user = users_db.get(id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    existing_prefs = preferences_db.get(id)
+    if not existing_prefs:
+        raise HTTPException(status_code=404, detail="Preferences not found for this user")
+
+    updated_data = existing_prefs.model_dump()
+    for key, value in prefs_update.model_dump(exclude_unset=True).items():
+        updated_data[key] = value
+    updated_data["updated_at"] = datetime.utcnow()
+
+    updated_prefs = PreferencesRead(**updated_data)
+    preferences_db[id] = updated_prefs
+    return updated_prefs
+
+@app.delete("/users/{id}/preferences", status_code=204)
 def delete_preferences(id: UUID):
-    raise HTTPException(status_code=501, detail="Not implemented: Delete/reset preferences for a user")
+    """Delete or reset user preferences."""
+    user = users_db.get(id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    if id not in preferences_db:
+        raise HTTPException(status_code=404, detail="Preferences not found")
+
+    del preferences_db[id]
+    return Response(status_code=204)
 
 # -----------------------------------------------------------------------------
 # Session endpoints
