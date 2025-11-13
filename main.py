@@ -17,6 +17,34 @@ from models.preferences import PreferencesRead, PreferencesCreate, PreferencesUp
 from models.session import SessionCreate, SessionRead, LoginRequest
 from models.health import Health
 
+import mysql.connector
+
+
+def get_connection():
+    """Return a MySQL connection depending on the environment."""
+    try:
+        if os.environ.get("ENV") == "local":
+            return mysql.connector.connect(
+                host="127.0.0.1",
+                user="root",     
+                password=os.environ["DB_PASSWORD"], 
+                database="user_management",
+                port=3306,
+            )
+        else:
+            return mysql.connector.connect(
+                host=os.environ["DB_HOST"],
+                user=os.environ["DB_USER"],
+                password=os.environ["DB_PASSWORD"],
+                database=os.environ["DB_NAME"],
+                port=int(os.environ.get("DB_PORT", 3306)),
+            )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Database connection failed: {e}")
+    
+Session = get_connection()
+print(Session)
+
 port = int(os.environ.get("FASTAPIPORT", 8000))
 
 app = FastAPI(
@@ -31,6 +59,8 @@ users_db: Dict[UUID, UserRead] = {}
 password_hashes: Dict[UUID, bytes] = {}  # user_id -> password hash
 sessions_db: Dict[UUID, SessionRead] = {}
 preferences_db: Dict[UUID, PreferencesRead] = {}
+
+
 
 
 # -----------------------------------------------------------------------------
