@@ -144,47 +144,51 @@ def list_users_db(skip: int, limit: int, occupation: Optional[str], location: Op
 @app.get("/users/{id}", response_model=UserRead)
 def get_user(id: UUID, response: Response):
     """Retrieve a user profile by ID with ETag support."""
-    user = users_db.get(id)
-    if not user:
+    row = get_user_by_id(id)
+    if not row:
         raise HTTPException(status_code=404, detail="User not found")
 
-    etag = generate_etag(user)
-    response.headers["ETag"] = etag
+    user = UserRead(**row)
+    ETag = generate_etag(user)
+    response.headers["ETag"] = ETag
+    print(f"ETag for user {id}: {ETag}")
+
     return user
 
 @app.put("/users/{id}", response_model=UserRead)
 def update_user(
     id: UUID,
     user_update: UserUpdate,
-    if_match: Optional[str] = Header(None, alias="If-Match")
+    if_match: Optional[str] = Header(None, alias="E-Tag")
 ):
     """Update a user if ETag matches."""
-    user = users_db.get(id) # fetch user
-    if not user:
+    # fetch user
+    existing = get_user_by_id(id)
+    if not existing:
         raise HTTPException(status_code=404, detail="User not found")
     
-    current_etag = generate_etag(user) # current ETag
+    current_user = UserRead(**existing)
+    current_etag = generate_etag(current_user) # current ETag, will be different than if-match if update timestamp changed
+
     if if_match and if_match != current_etag: # do not update if the resources has been modified since you fetched it
         raise HTTPException(status_code=412, detail="ETag mismatch (resource modified)")
     
-    updated_data = user.model_dump()
-    for key, value in user_update.model_dump(exclude_unset=True).items():
-        updated_data[key] = value
-    updated_data["updated_at"] = datetime.utcnow()
+    updates = user_update.model_dump(exclude_unset=True)
+    if not updates:
+        return current_user
 
-    new_user = UserRead(**updated_data)
-    users_db[id] = new_user
-    return new_user
+    updated = update_user_record(id, updates)
+    return UserRead(**updated)
 
 
 @app.delete("/users/{id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_user(id: UUID):
     """Delete a user profile."""
-    if id not in users_db:
+    existing = get_user_by_id(id)
+    if not existing:
         raise HTTPException(status_code=404, detail="User not found")
     
-    del users_db[id]
-    password_hashes.pop(id, None)
+    delete_user_record(id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 @app.get("/users", response_model=List[UserRead])
@@ -194,16 +198,10 @@ def list_users(skip: int = Query(0, ge=0),
     location: Optional[str] = Query(None),
     ):
     """List users with pagination and optional filters."""
-    results = list(users_db.values())
+    rows = list_users_db(skip, limit, occupation, location)
+    return [UserRead(**row) for row in rows]
 
-    if occupation:
-        results = [u for u in results if u.occupation == occupation]
-    if location:
-        results = [u for u in results if u.location == location]
 
-    return results[skip : skip + limit]
-
-    
 
 # -----------------------------------------------------------------------------
 # Preferences endpoints
