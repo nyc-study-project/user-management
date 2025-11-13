@@ -29,21 +29,7 @@ class PreferencesBase(BaseModel):
         description="Preferred environment types (noise level, setting).",
         json_schema_extra={"example": ["quiet", "indoor"]},
     )
-    #food_available: Optional[bool] = Field(
-        #None,
-        #description="Preference for food availability.",
-        #json_schema_extra={"example": True},
-    #)
-    #other_preferences: Optional[Dict[str, Any]] = Field(
-        #default_factory=dict,
-        #description="Flexible additional preferences so we're not limiting what preferences the user can enter.",
-        #json_schema_extra={"example": {"nice_view": True}},
-    #)
-     #open_late: Optional[bool] = Field(
-       # None,
-       # description="Does the user prefer spots open late?",
-       # json_schema_extra={"example": False},
-    # )
+    
     model_config = {
         "json_schema_extra": {
             "examples": [
@@ -71,7 +57,6 @@ class PreferencesUpdate(BaseModel):
     environment: Optional[list[Literal["quiet", "lively", "indoor", "outdoor", "moderate"]]] = None
 
 class PreferencesRead(PreferencesBase):
-    id: UUID = Field(default_factory=uuid4, description="Preferences ID")
     user_id: UUID = Field(..., description="Associated user ID")
     created_at: datetime = Field(default_factory=datetime.utcnow, description="Creation timestamp (UTC)")
     updated_at: datetime = Field(default_factory=datetime.utcnow, description="Last update timestamp (UTC)")

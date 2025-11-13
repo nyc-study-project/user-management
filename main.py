@@ -4,6 +4,7 @@ import hashlib
 import os
 import socket
 from datetime import datetime
+import json
 
 from typing import Dict, List
 from uuid import UUID, uuid4
@@ -201,7 +202,88 @@ def list_users(skip: int = Query(0, ge=0),
     rows = list_users_db(skip, limit, occupation, location)
     return [UserRead(**row) for row in rows]
 
+# -----------------------------------------------------------------------------
+# Database helpers for sessions
+# -----------------------------------------------------------------------------
 
+def get_session_by_id(session_id: UUID):
+    query = "SELECT * FROM sessions WHERE session_id = %s"
+    return execute_query(query, (str(session_id),), fetchone=True)
+
+def insert_session(user_id: UUID, expires_at: datetime):
+    session_id = str(uuid4())
+    query = """
+        INSERT INTO sessions (session_id, user_id, expires_at)
+        VALUES (%s, %s, %s)
+    """
+    execute_query(query, (session_id, str(user_id), expires_at), commit=True)
+    return get_session_by_id(session_id)
+
+def delete_session(session_id: UUID):
+    query = "DELETE FROM sessions WHERE session_id = %s"
+    execute_query(query, (str(session_id),), commit=True)
+
+# -----------------------------------------------------------------------------
+# Database helpers for preferences
+# -----------------------------------------------------------------------------
+
+def get_preferences_by_user_id(user_id: UUID):
+    query = "SELECT * FROM preferences WHERE user_id = %s"
+    row = execute_query(query, (str(user_id),), fetchone=True)
+    if not row:
+        return None
+    
+    # Convert JSON string columns back to Python lists
+    if row.get("refreshments_preferred"):
+        row["refreshments_preferred"] = json.loads(row["refreshments_preferred"])
+    if row.get("environment"):
+        row["environment"] = json.loads(row["environment"])
+
+    return PreferencesRead(**row)
+
+def insert_preferences(user_id: UUID, prefs: PreferencesCreate):
+    query = """
+        INSERT INTO preferences (
+            user_id, wifi_required, outlets_required,
+            seating_preference, refreshments_preferred, environment,
+            created_at, updated_at
+        )
+        VALUES (%s, %s, %s, %s, %s, %s, NOW(), NOW())
+    """
+    execute_query(
+        query,
+        (
+            str(user_id),
+            prefs.wifi_required,
+            prefs.outlets_required,
+            prefs.seating_preference,
+            json.dumps(prefs.refreshments_preferred) if prefs.refreshments_preferred else None,
+            json.dumps(prefs.environment) if prefs.environment else None,
+        ),
+        commit=True,
+    )
+    return get_preferences_by_user_id(user_id)
+
+def update_preferences_record(user_id: UUID, updates: dict):
+    # Convert any list fields to JSON strings
+    updates_copy = updates.copy()
+    for key in ["environment", "refreshments_preferred"]:
+        if key in updates_copy and updates_copy[key] is not None:
+            updates_copy[key] = json.dumps(updates_copy[key])
+
+    set_clause = ", ".join(f"{col}=%s" for col in updates_copy)
+    params = list(updates_copy.values()) + [str(user_id)]
+    query = f"""
+        UPDATE preferences
+        SET {set_clause}, updated_at=NOW()
+        WHERE user_id=%s
+    """
+    execute_query(query, params, commit=True)
+    return get_preferences_by_user_id(user_id)
+
+def delete_preferences_record(user_id: UUID):
+    query = "DELETE FROM preferences WHERE user_id = %s"
+    execute_query(query, (str(user_id),), commit=True)
 
 # -----------------------------------------------------------------------------
 # Preferences endpoints
@@ -210,64 +292,59 @@ def list_users(skip: int = Query(0, ge=0),
 @app.get("/users/{id}/preferences", response_model=PreferencesRead)
 def get_preferences(id: UUID):
     """Retrieve a user's saved preferences."""
-    user = users_db.get(id)
+    user = get_user_by_id(id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
-    preferences = preferences_db.get(id)
-    if not preferences:
+    prefs = get_preferences_by_user_id(id)
+    if not prefs:
         raise HTTPException(status_code=404, detail="Preferences not set for this user")
 
-    return preferences
+    return prefs
 
 @app.post("/users/{id}/preferences", response_model=PreferencesRead, status_code=201)
 def create_preferences(id: UUID, prefs: PreferencesCreate):
     """Create preferences for a user (one-to-one relationship)."""
-    user = users_db.get(id)
+    user = get_user_by_id(id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
-    if id in preferences_db:
-        raise HTTPException(status_code=400, detail="Preferences already exist for this user")
+    if get_preferences_by_user_id(id):
+        raise HTTPException(status_code=400, detail="Preferences already exist")
 
-    new_prefs = PreferencesRead(
-        user_id=id,
-        **prefs.model_dump(exclude_unset=True)
-    )
-    preferences_db[id] = new_prefs
+    new_prefs = insert_preferences(id, prefs)
     return new_prefs
 
 @app.put("/users/{id}/preferences", response_model=PreferencesRead)
 def update_preferences(id: UUID, prefs_update: PreferencesUpdate):
     """Update existing user preferences."""
-    user = users_db.get(id)
+    user = get_user_by_id(id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
-    existing_prefs = preferences_db.get(id)
-    if not existing_prefs:
-        raise HTTPException(status_code=404, detail="Preferences not found for this user")
+    existing = get_preferences_by_user_id(id)
+    if not existing:
+        raise HTTPException(status_code=404, detail="Preferences not found")
 
-    updated_data = existing_prefs.model_dump()
-    for key, value in prefs_update.model_dump(exclude_unset=True).items():
-        updated_data[key] = value
-    updated_data["updated_at"] = datetime.utcnow()
+    updates = prefs_update.model_dump(exclude_unset=True)
+    if not updates:
+        raise HTTPException(status_code=400, detail="No fields provided to update")
+    
+    updated_row = update_preferences_record(id, updates)
 
-    updated_prefs = PreferencesRead(**updated_data)
-    preferences_db[id] = updated_prefs
-    return updated_prefs
+    return updated_row
 
 @app.delete("/users/{id}/preferences", status_code=204)
 def delete_preferences(id: UUID):
     """Delete or reset user preferences."""
-    user = users_db.get(id)
+    user = get_user_by_id(id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
-    if id not in preferences_db:
+    if not get_preferences_by_user_id(id):
         raise HTTPException(status_code=404, detail="Preferences not found")
 
-    del preferences_db[id]
+    delete_preferences_record(id)
     return Response(status_code=204)
 
 # -----------------------------------------------------------------------------
