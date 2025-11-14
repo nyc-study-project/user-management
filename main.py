@@ -152,7 +152,6 @@ def get_user(id: UUID, response: Response):
     user = UserRead(**row)
     ETag = generate_etag(user)
     response.headers["ETag"] = ETag
-    print(f"ETag for user {id}: {ETag}")
 
     return user
 
@@ -380,44 +379,40 @@ def register_user(user: UserCreate):
 
 @app.post("/auth/login")
 def login_user(credentials: LoginRequest):
-    try:
-        """Authenticate user and create a new session."""
-        username = credentials.username
-        password = credentials.password
+    """Authenticate user and create a new session."""
+    username = credentials.username
+    password = credentials.password
 
-        if not username or not password:
-            raise HTTPException(status_code=400, detail="Username and password required")
+    if not username or not password:
+        raise HTTPException(status_code=400, detail="Username and password required")
         
-        # Find user by username
-        user = next((u for u in users_db.values() if u.username == username), None)
-        if not user:
-            raise HTTPException(status_code=401, detail="Invalid credentials")
+    # Find user by username
+    user_row = get_user_by_username(username)
+    if not user_row:
+        raise HTTPException(status_code=401, detail="Invalid credentials")
         
-        # Verify password
-        hashed_pw = password_hashes.get(user.id)
-        if not hashed_pw or not verify_password(password, hashed_pw):
-            raise HTTPException(status_code=401, detail="Invalid credentials")
+    # Verify password
+    if not verify_password(password, user_row["password_hash"].encode()):
+        raise HTTPException(status_code=401, detail="Invalid credentials")
         
-        # Create new session
-        session = SessionRead(user_id=user.id)
-        sessions_db[session.session_id] = session
+    # Create new session
+    expires = datetime.utcnow().timestamp() + 3600  # 1 hour
+    expires_at = datetime.utcfromtimestamp(expires)
 
-        #print(sessions_db)
+    new_session = insert_session(UUID(user_row["id"]), expires_at)
 
-        return {
-            "message": "Login successful",
-            "session_id": str(session.session_id),
-            "expires_at": session.expires_at,
-            "user_id": str(user.id)
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail="Internal server error during login") from e
+    return {
+        "message": "Login successful",
+        "session_id": new_session["session_id"],
+        "expires_at": new_session["expires_at"],
+        "user_id": new_session["user_id"],
+    }
 
 @app.post("/auth/logout", status_code=204)
 def logout_user(
     auth: str = Header(
         ...,
-        description="Bearer token containing your session ID",
+        description="Token containing your session ID",
         example="Bearer 123e4567-e89b-12d3-a456-426614174000"
     )
 ):
@@ -427,24 +422,23 @@ def logout_user(
 
     # Expect the header to be something like "Bearer <session_id>"
     try:
-        token = auth.split(" ")[1]
-        session_id = UUID(token)
+        session_id = UUID(auth.split(" ")[1])
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid Authorization format")
 
-    if session_id not in sessions_db:
+    session = get_session_by_id(session_id)
+    if not session:
         raise HTTPException(status_code=401, detail="Invalid or expired session")
 
     # Delete session
-    del sessions_db[session_id]
-    #print(sessions_db)
+    delete_session(session_id)
     return Response(status_code=204)
 
 @app.get("/auth/me", response_model=UserRead)
 def get_current_user(
         auth: str = Header(
         ...,
-        description="Bearer token containing your session ID",
+        description="Token containing your session ID",
         example="Bearer 123e4567-e89b-12d3-a456-426614174000"
     )):
     """Return the current authenticated user's profile."""
@@ -452,26 +446,26 @@ def get_current_user(
         raise HTTPException(status_code=401, detail="Missing Authorization header")
     
     try:
-        token = auth.split(" ")[1]
-        session_id = UUID(token)
+        session_id = UUID(auth.split(" ")[1])
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid Authorization format")
 
-    session = sessions_db.get(session_id)
+    session = get_session_by_id(session_id)
+
     if not session:
         raise HTTPException(status_code=401, detail="Invalid or expired session")
 
     # Check expiry
-    if session.expires_at < datetime.utcnow():
-        del sessions_db[session_id]
+    if session["expires_at"] < datetime.utcnow():
+        delete_session(session_id)
         raise HTTPException(status_code=401, detail="Session expired")
 
     # Return user info
-    user = users_db.get(session.user_id)
-    if not user:
+    user_row = get_user_by_id(UUID(session["user_id"]))
+    if not user_row:
         raise HTTPException(status_code=404, detail="User not found")
 
-    return user
+    return UserRead(**user_row)
 
 
 # -----------------------------------------------------------------------------
