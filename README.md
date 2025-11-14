@@ -1,53 +1,108 @@
 # User Management
-This microservice is responsible for managing users, their preferences, and authentication sessions for the NYC Study Projects system. 
-It provides APIs for registration, login/logout, managing user profiles, and customizing study spot preferences.
+This microservice manages users, authentication sessions, and user study-spot preferences for the NYC Study Projects system.
+It provides registration & login, CRUD operations for user profiles, a preferences system backed by MySQL, and secure session management.
 
-As of Sprint 1, it currently has 3 models and their respective endpoints, all of which are returning **Not Implemented** for the time being.
+All Sprint 1+2 endpoints are now fully implemented and backed by a MySQL database.
 
-## Current Models
+## Features Implemented
 
-**user.py** - Represents a user account and profile information
-- Stores login credentials (username + password hash, never the raw password)
-- Contains profile details such as age, occupation, and location
-- Includes metadata like created_at and updated_at timestamps
-- Acts as the primary resource — other models (preferences, sessions) reference a user by their user_id
-  
-**preferences.py** - Represents a user’s study/work spot preferences
-- Each user has one preference instance (1-to-1 relationship)
-- Defines what a user cares about in a study/work environment, (like Wi-Fi, noise level)
-- Provides flexibility with an other_preferences field for custom notes or less common requirements (but we can change this later if needed)
-- Fields will likley change in the future since they need to line up with the Spot Management amenity model 
+### Authentication & Sessions
 
-**session.py** - Represents an active login session for a user
-- Created automatically after a successful login
-- Stores a session token (temporary credential that proves the user is logged in) in database
-- Includes an expires_at timestamp so sessions automatically expire
-- Tied to a specific user_id, so multiple sessions (e.g., different devices) can exist for the same user
-- The idea was that a database table will hold all active session IDs and delete them upon logout or becoming expired. We can change this session method later if needed.
+- Full username/password login with bcrypt hashing
+- Session table stored in MySQL
+- Expiring sessions (expires_at)
+- /auth/me endpoint reads the session token
+
+### User Management
+- Create, read, update, delete users
+- Pagination + filters on GET /users
+  - Supports skip, limit, occupation, and location
+- Optimistic concurrency with ETag
+  - GET /users/{id} returns ETag header
+  - PUT /users/{id} requires If-Match header
+  - Prevents overwriting changes made by another client
+
+### User Preferences
+- One-to-one preferences table
+- JSON fields supported: refreshments_preferred, environment
+- Full CRUD implemented
+- Auto-conversion between Python lists and MySQL JSON strings
+
+## Project Structure
+- **user.py** — UserCreate, UserRead, UserUpdate
+- **preferences.py** — PreferencesCreate, PreferencesRead, PreferencesUpdate
+- **session.py** — SessionCreate, SessionRead, LoginRequest
+- **health.py** — Health endpoint output model
+
+### Core file
+- **main.py** — FastAPI app, DB connections, endpoints
+
+## Database Schema
+
+### Users Table
+
+```
+CREATE TABLE IF NOT EXISTS users (
+    id CHAR(36) PRIMARY KEY,
+    username VARCHAR(50) UNIQUE NOT NULL,
+    password_hash VARCHAR(255) NOT NULL,
+    age INT DEFAULT NULL,
+    occupation VARCHAR(100) DEFAULT NULL,
+    location VARCHAR(100) DEFAULT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+```
+
+### Preferences Table
+
+```
+CREATE TABLE IF NOT EXISTS preferences (
+    user_id CHAR(36) PRIMARY KEY,                         
+    wifi_required BOOLEAN DEFAULT NULL,
+    outlets_required BOOLEAN DEFAULT NULL,
+    seating_preference VARCHAR(10) DEFAULT NULL,    
+    refreshments_preferred JSON DEFAULT NULL,        
+    environment JSON DEFAULT NULL,                   
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+```
+
+### Sessions Table
+
+```
+CREATE TABLE IF NOT EXISTS sessions (
+    session_id CHAR(36) PRIMARY KEY,                 
+    user_id CHAR(36) NOT NULL,                      
+    expires_at DATETIME NOT NULL,                    
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+```
 
 ## Current API endpoints
 
 **Users**
 
-- GET /users/{id} → Retrieve a user profile
-- PUT /users/{id} → Update user profile
-- DELETE /users/{id} → Delete a user and associated preferences/sessions
-- GET /users → List all users (should be admin only)
+- GET /users/{id} → Retrieve a user profile, Adds ETag header for concurrency support
+- PUT /users/{id} → Applies partial updates, requires matching If-Match header, returns 412 Precondition Failed on mismatch
+- DELETE /users/{id} → Deletes user and cascades delete into preferences and sessions
+- GET /users → List all users, Pagination: skip, limit, Filters: occupation, location
 
 **Preferences**
 
 - GET /users/{id}/preferences → Get preferences for a user
 - PUT /users/{id}/preferences → Update preferences
 - DELETE /users/{id}/preferences → Delete/reset preferences
+  
+- Supports JSON conversion for list-type fields.
 
 **Authentication and Sessions**
 
-- POST /auth/register → Create a new user account (password will be stored hashed)
-- POST /auth/login → Login with username & password (creates session)
-- POST /auth/logout → Logout (invalidates session)
-- GET /auth/me → Get the current authenticated user
-
-## Sprint 1
-For sprint 1, this mircoservice is currently deployed on our VM where you can view the OpenAPI doc:
+- POST /auth/register → Creates a user with hashed password
+- POST /auth/login → Login with username & password, creates session and returns session_id
+- POST /auth/logout → Deletes session instance, requires header Authorization: Bearer <session_id>
+- GET /auth/me → Returns the currently authenticated user, requires header Authorization: Bearer <session_id>
 
 <img width="1421" height="798" alt="Screenshot 2025-10-03 at 3 29 30 PM" src="https://github.com/user-attachments/assets/9a702f91-7fdf-45e6-bf5b-e7fbcad797d1" />
