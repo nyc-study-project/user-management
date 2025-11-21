@@ -353,29 +353,24 @@ def delete_preferences(id: UUID):
 @app.post("/auth/register", response_model=UserRead, status_code=201)
 def register_user(user: UserCreate):
     """Create a new user with hashed password."""
-    try:
-        # Check if username is already taken
-        existing = get_user_by_username(user.username)
-        if existing:
-            raise HTTPException(status_code=400, detail="Username already exists")
+    # Check if username is already taken
+    existing = get_user_by_username(user.username)
+    if existing:
+        raise HTTPException(status_code=400, detail="Username already exists")
         
-        # Create user and hash password
-        hashed_pw = hash_password(user.password)
-        new_user_row = insert_user(user, hashed_pw)
+    # Create user and hash password
+    hashed_pw = hash_password(user.password)
+    new_user_row = insert_user(user, hashed_pw)
 
-        return UserRead(
-        id=UUID(new_user_row["id"]),
-        username=new_user_row["username"],
-        age=new_user_row["age"],
-        occupation=new_user_row["occupation"],
-        location=new_user_row["location"],
-        created_at=new_user_row["created_at"],
-        updated_at=new_user_row["updated_at"],
+    return UserRead(
+    id=UUID(new_user_row["id"]),
+    username=new_user_row["username"],
+    age=new_user_row["age"],
+    occupation=new_user_row["occupation"],
+    location=new_user_row["location"],
+    created_at=new_user_row["created_at"],
+    updated_at=new_user_row["updated_at"],
     )
-
-    except Exception as e:
-        raise HTTPException(status_code=500, detail="Internal server error during registration.") from e
-
 
 @app.post("/auth/login")
 def login_user(credentials: LoginRequest):
