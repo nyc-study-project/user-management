@@ -6,8 +6,8 @@ class Health(BaseModel):
     status_message: str = Field(description="Human-readable status message")
     timestamp: str = Field(description="Timestamp in ISO 8601 format (UTC)")
     ip_address: str = Field(description="IP address of the responding service")
-    echo: str | None = Field(default=None, description="Optional echo (query param)")
-    path_echo: str | None = Field(default=None, description="Echo from path param (/health/{path_echo})")
+    echo: Optional[str] = Field(default=None, description="Optional echo (query param)")
+    path_echo: Optional[str] = Field(default=None, description="Echo from path param (/health/{path_echo})")
 
     # Pydantic v2 style
     model_config = {

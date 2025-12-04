@@ -11,10 +11,10 @@ UsernameType = Annotated[str, StringConstraints(pattern=r"^[a-zA-Z0-9_]{3,20}$")
 
 '''Shared core fields for all models'''
 class UserBase(BaseModel):
-    username: UsernameType = Field(
-        ...,
-        description="Unique username used for login.",
-        json_schema_extra={"example": "student123"},
+    display_name: Optional[str] = Field(
+        None,
+        description="Name or display name of the user (from Google).",
+        json_schema_extra={"example": "George Washington"},
     )
     age: Optional[int] = Field(
         None,
@@ -36,7 +36,7 @@ class UserBase(BaseModel):
         "json_schema_extra": {
             "examples": [
                 {
-                    "username": "student123",
+                    "display_name": "George Washington",
                     "age": 21,
                     "occupation": "student",
                     "location": "Brooklyn",
@@ -47,30 +47,13 @@ class UserBase(BaseModel):
 
 
 class UserCreate(UserBase):
-    """Payload for creating a user account (adding password here)"""
-    password: str = Field(
-        ...,
-        description="Raw password (will be hashed before storage)",
-        json_schema_extra={"example": "StrongP@ssw0rd"},
-    )
-
-    model_config = {
-        "json_schema_extra": {
-            "examples": [
-                {
-                    "username": "student123",
-                    "age": 21,
-                    "occupation": "student",
-                    "location": "Brooklyn",
-                    "password": "StrongP@ssw0rd"
-                }
-            ]
-        }
-    }
+    """Payload for creating a user account without Google."""
+    pass
 
 '''Contains only the fields that the user is allowed to change'''
 class UserUpdate(BaseModel):
     """Partial update for user profile; supply only fields to change."""
+    display_name: Optional[str] = Field(None, json_schema_extra={"example": "George W."})
     age: Optional[int] = Field(None, json_schema_extra={"example": 22})
     occupation: Optional[str] = Field(None, json_schema_extra={"example": "professional"})
     location: Optional[str] = Field(None, json_schema_extra={"example": "Manhattan"})
@@ -80,3 +63,5 @@ class UserRead(UserBase):
     id: UUID = Field(default_factory=uuid4, description="Server-generated User ID")
     created_at: datetime = Field(default_factory=datetime.utcnow, description="Account creation time (UTC)")
     updated_at: datetime = Field(default_factory=datetime.utcnow, description="Last update time (UTC)")
+    google_id: Optional[str] = Field(None, description="Google OAuth subject identifier")
+    email: Optional[str] = Field(None, description="User email from Google")

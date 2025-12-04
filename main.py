@@ -6,20 +6,27 @@ import socket
 from datetime import datetime
 import json
 
-from typing import Dict, List
+from typing import List
 from uuid import UUID, uuid4
 
-from fastapi import FastAPI, HTTPException, Query, Path, Response, Header, status
+from fastapi import FastAPI, HTTPException, Query, Path, Response, Header, status, Request
 from typing import Optional
 import bcrypt
 
-from models.user import UserCreate, UserRead, UserUpdate
+from models.user import UserRead, UserUpdate
 from models.preferences import PreferencesRead, PreferencesCreate, PreferencesUpdate
-from models.session import SessionCreate, SessionRead, LoginRequest
 from models.health import Health
 
 import mysql.connector
 
+from authlib.integrations.starlette_client import OAuth
+from starlette.middleware.sessions import SessionMiddleware
+
+import my_secrets
+
+GOOGLE_CLIENT_ID = my_secrets.GOOGLE_CLIENT_ID
+GOOGLE_CLIENT_SECRET = my_secrets.GOOGLE_CLIENT_SECRET
+SESSION_SECRET_KEY = my_secrets.SECRET_KEY
 
 def get_connection():
     """Return a MySQL connection depending on the environment."""
@@ -69,6 +76,21 @@ app = FastAPI(
     description="Handles registration, login, authentication, and user preferences for study spots app",
 )
 
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=SESSION_SECRET_KEY,
+)
+
+oauth = OAuth()
+
+oauth.register(
+    name="google",
+    client_id=GOOGLE_CLIENT_ID,
+    client_secret=GOOGLE_CLIENT_SECRET,
+    server_metadata_url="https://accounts.google.com/.well-known/openid-configuration",
+    client_kwargs={"scope": "openid email profile"},
+)
+
 # -----------------------------------------------------------------------------
 # Utility helpers
 # -----------------------------------------------------------------------------
@@ -88,24 +110,6 @@ def verify_password(password: str, hashed: bytes) -> bool:
 def get_user_by_id(user_id: UUID):
     query = "SELECT * FROM users WHERE id = %s"
     return execute_query(query, (str(user_id),), fetchone=True)
-
-def get_user_by_username(username: str):
-    query = "SELECT * FROM users WHERE username = %s"
-    return execute_query(query, (username,), fetchone=True)
-
-def insert_user(user: UserCreate, hashed_pw: bytes):
-    user_id = str(uuid4())  # or just str(uuid4())
-    query = """
-        INSERT INTO users (id, username, password_hash, age, occupation, location, created_at, updated_at)
-        VALUES (%s, %s, %s, %s, %s, %s, NOW(), NOW())
-    """
-    print(query)
-    execute_query(
-        query,
-        (user_id, user.username, hashed_pw.decode(), user.age, user.occupation, user.location),
-        commit=True,
-    )
-    return get_user_by_id(user_id)
 
 def update_user_record(user_id: UUID, fields: dict):
     # dynamic query builder for partial updates
@@ -137,6 +141,7 @@ def list_users_db(skip: int, limit: int, occupation: Optional[str], location: Op
     params += [limit, skip]
 
     return execute_query(base_query, tuple(params), fetchall=True)
+
 
 # -----------------------------------------------------------------------------
 # User endpoints
@@ -347,12 +352,63 @@ def delete_preferences(id: UUID):
     return Response(status_code=204)
 
 # -----------------------------------------------------------------------------
-# Session endpoints
+# Session + Google endpoints
 # -----------------------------------------------------------------------------
 
-@app.post("/auth/register", response_model=UserRead, status_code=201)
+@app.get("/auth/login/google")
+async def login_with_google(request: Request):
+    redirect_uri = request.url_for("google_auth_callback")
+    return await oauth.google.authorize_redirect(request, redirect_uri)
+
+@app.get("/auth/callback/google")
+async def google_auth_callback(request: Request):
+    token = await oauth.google.authorize_access_token(request)
+
+    # this contains id_token with email, name, etc.
+    user_info = token.get("userinfo")
+    if not user_info:
+        raise HTTPException(status_code=400, detail="Invalid Google login")
+
+    google_id = user_info["sub"]
+    email = user_info["email"]
+    name = user_info.get("name")
+
+    # 1. Look up user in DB by google_id
+    query = "SELECT * FROM users WHERE google_id = %s"
+    db_user = execute_query(query, (google_id,), fetchone=True)
+
+    # 2. If not exists, create one
+    if not db_user:
+        new_id = str(uuid4())
+        query = """
+            INSERT INTO users (id, google_id, email, display_name, created_at, updated_at)
+            VALUES (%s, %s, %s, %s, NOW(), NOW())
+        """
+        execute_query(
+            query,
+            (new_id, google_id, email, name),
+            commit=True
+        )
+        user_id = new_id
+    else:
+        user_id = db_user["id"]
+
+    # 3. Create a session (same as before)
+    expires = datetime.utcnow().timestamp() + 3600
+    expires_at = datetime.utcfromtimestamp(expires)
+    session = insert_session(UUID(user_id), expires_at)
+
+    # 4. Return session ID to the frontend
+    return {
+        "session_id": session["session_id"],
+        "expires_at": session["expires_at"],
+        "user_id": session["user_id"]
+    }
+
+
+
+"""@app.post("/auth/register", response_model=UserRead, status_code=201)
 def register_user(user: UserCreate):
-    """Create a new user with hashed password."""
     # Check if username is already taken
     existing = get_user_by_username(user.username)
     if existing:
@@ -374,7 +430,6 @@ def register_user(user: UserCreate):
 
 @app.post("/auth/login")
 def login_user(credentials: LoginRequest):
-    """Authenticate user and create a new session."""
     username = credentials.username
     password = credentials.password
 
@@ -401,7 +456,7 @@ def login_user(credentials: LoginRequest):
         "session_id": new_session["session_id"],
         "expires_at": new_session["expires_at"],
         "user_id": new_session["user_id"],
-    }
+    } """
 
 @app.post("/auth/logout", status_code=204)
 def logout_user(
