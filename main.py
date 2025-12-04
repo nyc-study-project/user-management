@@ -28,6 +28,7 @@ GOOGLE_CLIENT_ID = my_secrets.GOOGLE_CLIENT_ID
 GOOGLE_CLIENT_SECRET = my_secrets.GOOGLE_CLIENT_SECRET
 SESSION_SECRET_KEY = my_secrets.SECRET_KEY
 
+# replace this with direct connection to Cloud SQL using private IP already in VM's version of user_management
 def get_connection():
     """Return a MySQL connection depending on the environment."""
     try:
