@@ -8,13 +8,13 @@ All Sprint 1+2 endpoints are now fully implemented and backed by a MySQL databas
 
 ### Authentication & Sessions
 
-- Full username/password login with bcrypt hashing
+- Login/register system using Google
 - Session table stored in MySQL
 - Expiring sessions (expires_at)
 - /auth/me endpoint reads the session token
 
 ### User Management
-- Create, read, update, delete users
+- read, update, delete users
 - Pagination + filters on GET /users
   - Supports skip, limit, occupation, and location
 - Optimistic concurrency with ETag
@@ -29,7 +29,7 @@ All Sprint 1+2 endpoints are now fully implemented and backed by a MySQL databas
 - Auto-conversion between Python lists and MySQL JSON strings
 
 ## Project Structure
-- **user.py** — UserCreate, UserRead, UserUpdate
+- **user.py** — UserRead, UserUpdate
 - **preferences.py** — PreferencesCreate, PreferencesRead, PreferencesUpdate
 - **session.py** — SessionCreate, SessionRead, LoginRequest
 - **health.py** — Health endpoint output model
@@ -44,13 +44,14 @@ All Sprint 1+2 endpoints are now fully implemented and backed by a MySQL databas
 ```
 CREATE TABLE IF NOT EXISTS users (
     id CHAR(36) PRIMARY KEY,
-    username VARCHAR(50) UNIQUE NOT NULL,
-    password_hash VARCHAR(255) NOT NULL,
+    display_name varchar(255) DEFAULT NULL,
     age INT DEFAULT NULL,
     occupation VARCHAR(100) DEFAULT NULL,
     location VARCHAR(100) DEFAULT NULL,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    google_id  varchar(255) UNIQUE,
+    email varchar(255) UNIQUE
 );
 ```
 
@@ -100,8 +101,8 @@ CREATE TABLE IF NOT EXISTS sessions (
 
 **Authentication and Sessions**
 
-- POST /auth/register → Creates a user with hashed password
-- POST /auth/login → Login with username & password, creates session and returns session_id
+- GET /auth/login/google → Login with Google account, redirect to /auth/callback/google
+- GET /auth/callback/google → Adds user to User table and creates session in Sessions table
 - POST /auth/logout → Deletes session instance, requires header Authorization: Bearer <session_id>
 - GET /auth/me → Returns the currently authenticated user, requires header Authorization: Bearer <session_id>
 
