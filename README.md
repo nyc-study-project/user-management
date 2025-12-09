@@ -1,4 +1,4 @@
-Notes for sprint 3 deployment: Database schema has changed (see schema section) + a redirect uri to callback endpoint must be added in gcp (local example available in gcp). Additionally, the get_connection of this code should be replaced with what is currently being used in the VM. This version of get_connection works locally, but it was changed for production last sprint to use a direct connection to our databse instead of variables.
+Notes for sprint 3 deployment: Database schema has changed (see schema section) + a redirect uri to callback endpoint must be added in gcp (local example available in gcp). Additionally, the get_connection of this code should be replaced with what is currently being used in the VM. This version of get_connection works locally, but it was changed for production last sprint to use a direct connection to our database instead of variables and I didn't want to commit that.
 
 # User Management
 This microservice manages users, authentication sessions, and user study-spot preferences for the NYC Study Projects system.
