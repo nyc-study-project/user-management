@@ -29,7 +29,7 @@ GOOGLE_CLIENT_SECRET = my_secrets.GOOGLE_CLIENT_SECRET
 SESSION_SECRET_KEY = my_secrets.SECRET_KEY
 
 # replace this with direct connection to Cloud SQL using private IP already in VM's version of user_management
-def get_connection():
+'''def get_connection():
     """Return a MySQL connection depending on the environment."""
     try:
         if os.environ.get("ENV") == "local":
@@ -49,7 +49,18 @@ def get_connection():
                 port=int(os.environ.get("DB_PORT", 3306)),
             )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Database connection failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Database connection failed: {e}")'''
+
+
+def get_connection():
+    """Direct connection to Cloud SQL using private IP."""
+    return mysql.connector.connect(
+        host="10.38.80.5",            # Cloud SQL private IP
+        user="root",
+        password="root-password",     # Your Cloud SQL root password
+        database="user_management",
+        port=3306,
+    )
     
 
 def execute_query(query, params=None, fetchone=False, fetchall=False, commit=False):
