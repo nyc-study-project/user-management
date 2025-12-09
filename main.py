@@ -369,7 +369,7 @@ def delete_preferences(id: UUID):
 
 @app.get("/auth/login/google")
 async def login_with_google(request: Request):
-    redirect_uri = "https://composite-gateway-642518168067.us-east1.run.app/auth/callback/google"
+    redirect_uri = "https://composite-gateway-642518168067.us-central1.run.app/auth/callback/google"
     return await oauth.google.authorize_redirect(request, redirect_uri)
 
 @app.get("/auth/callback/google")
