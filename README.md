@@ -40,6 +40,7 @@ All Sprint 1+2 endpoints are now fully implemented and backed by a MySQL databas
 ## Database Schema
 
 ### Users Table
+changes made for sprint 3: dropped password, added google id and email, and dropped username to replace with display name
 
 ```
 CREATE TABLE IF NOT EXISTS users (
