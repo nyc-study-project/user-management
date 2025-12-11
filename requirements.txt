@@ -17,3 +17,5 @@ httpx
 bcrypt
 mysql-connector-python==8.0.28
 authlib
+PyJWT
+itsdangerous==2.1.2

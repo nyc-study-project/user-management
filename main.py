@@ -3,8 +3,9 @@ from __future__ import annotations
 import hashlib
 import os
 import socket
-from datetime import datetime
+from datetime import datetime, timedelta
 import json
+import jwt
 
 from typing import List
 from uuid import UUID, uuid4
@@ -27,6 +28,8 @@ import my_secrets
 GOOGLE_CLIENT_ID = my_secrets.GOOGLE_CLIENT_ID
 GOOGLE_CLIENT_SECRET = my_secrets.GOOGLE_CLIENT_SECRET
 SESSION_SECRET_KEY = my_secrets.SECRET_KEY
+JWT_SECRET = my_secrets.JWT_SECRET  
+JWT_ALGO = "HS256"
 
 # replace this with direct connection to Cloud SQL using private IP already in VM's version of user_management
 '''def get_connection():
@@ -54,6 +57,8 @@ SESSION_SECRET_KEY = my_secrets.SECRET_KEY
 
 def get_connection():
     """Direct connection to Cloud SQL using private IP."""
+    # if os.environ.get("ENV") == "local":
+    #     return None
     return mysql.connector.connect(
         host="10.38.80.5",            # Cloud SQL private IP
         user="root",
@@ -110,11 +115,23 @@ def generate_etag(user: UserRead) -> str:
     """Create an ETag based on last update timestamp."""
     return hashlib.sha256(user.updated_at.isoformat().encode()).hexdigest()
 
-def hash_password(password: str) -> bytes:
-    return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt())
+def verify_jwt(auth_header: str):
+    if not auth_header:
+        raise HTTPException(status_code=401, detail="Missing Authorization header")
 
-def verify_password(password: str, hashed: bytes) -> bool:
-    return bcrypt.checkpw(password.encode("utf-8"), hashed)
+    # Accept "Bearer <token>" or just "<token>"
+    if auth_header.startswith("Bearer "):
+        token = auth_header.split(" ")[1]
+    else:
+        token = auth_header  # raw token
+
+    try:
+        decoded = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGO])
+        return decoded
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Token expired")
+    except jwt.InvalidTokenError:
+        raise HTTPException(status_code=401, detail="Invalid token")
 
 # -----------------------------------------------------------------------------
 # Database helpers for users
@@ -160,7 +177,9 @@ def list_users_db(skip: int, limit: int, occupation: Optional[str], location: Op
 # -----------------------------------------------------------------------------
 
 @app.get("/users/{id}", response_model=UserRead)
-def get_user(id: UUID, response: Response):
+def get_user(id: UUID, response: Response, auth: str = Header(None)):
+    verify_jwt(auth)
+
     """Retrieve a user profile by ID with ETag support."""
     row = get_user_by_id(id)
     if not row:
@@ -176,8 +195,11 @@ def get_user(id: UUID, response: Response):
 def update_user(
     id: UUID,
     user_update: UserUpdate,
-    if_match: Optional[str] = Header(None, alias="E-Tag")
+    if_match: Optional[str] = Header(None, alias="E-Tag"),
+    auth: str = Header(None)
 ):
+    verify_jwt(auth)
+
     """Update a user if ETag matches."""
     # fetch user
     existing = get_user_by_id(id)
@@ -199,7 +221,9 @@ def update_user(
 
 
 @app.delete("/users/{id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_user(id: UUID):
+def delete_user(id: UUID, auth: str = Header(None)):
+    verify_jwt(auth)
+
     """Delete a user profile."""
     existing = get_user_by_id(id)
     if not existing:
@@ -213,7 +237,10 @@ def list_users(skip: int = Query(0, ge=0),
     limit: int = Query(10, ge=1, le=50),
     occupation: Optional[str] = Query(None),
     location: Optional[str] = Query(None),
+    auth: str = Header(None)
     ):
+    verify_jwt(auth)
+
     """List users with pagination and optional filters."""
     rows = list_users_db(skip, limit, occupation, location)
     return [UserRead(**row) for row in rows]
@@ -222,7 +249,7 @@ def list_users(skip: int = Query(0, ge=0),
 # Database helpers for sessions
 # -----------------------------------------------------------------------------
 
-def get_session_by_id(session_id: UUID):
+'''def get_session_by_id(session_id: UUID):
     query = "SELECT * FROM sessions WHERE session_id = %s"
     return execute_query(query, (str(session_id),), fetchone=True)
 
@@ -237,7 +264,7 @@ def insert_session(user_id: UUID, expires_at: datetime):
 
 def delete_session(session_id: UUID):
     query = "DELETE FROM sessions WHERE session_id = %s"
-    execute_query(query, (str(session_id),), commit=True)
+    execute_query(query, (str(session_id),), commit=True)'''
 
 # -----------------------------------------------------------------------------
 # Database helpers for preferences
@@ -306,7 +333,9 @@ def delete_preferences_record(user_id: UUID):
 # -----------------------------------------------------------------------------
 
 @app.get("/users/{id}/preferences", response_model=PreferencesRead)
-def get_preferences(id: UUID):
+def get_preferences(id: UUID, auth: str = Header(None)):
+    verify_jwt(auth)
+    
     """Retrieve a user's saved preferences."""
     user = get_user_by_id(id)
     if not user:
@@ -319,7 +348,9 @@ def get_preferences(id: UUID):
     return prefs
 
 @app.post("/users/{id}/preferences", response_model=PreferencesRead, status_code=201)
-def create_preferences(id: UUID, prefs: PreferencesCreate):
+def create_preferences(id: UUID, prefs: PreferencesCreate, auth: str = Header(None)):
+    verify_jwt(auth)
+
     """Create preferences for a user (one-to-one relationship)."""
     user = get_user_by_id(id)
     if not user:
@@ -332,7 +363,9 @@ def create_preferences(id: UUID, prefs: PreferencesCreate):
     return new_prefs
 
 @app.put("/users/{id}/preferences", response_model=PreferencesRead)
-def update_preferences(id: UUID, prefs_update: PreferencesUpdate):
+def update_preferences(id: UUID, prefs_update: PreferencesUpdate, auth: str = Header(None)):
+    verify_jwt(auth)
+
     """Update existing user preferences."""
     user = get_user_by_id(id)
     if not user:
@@ -351,7 +384,9 @@ def update_preferences(id: UUID, prefs_update: PreferencesUpdate):
     return updated_row
 
 @app.delete("/users/{id}/preferences", status_code=204)
-def delete_preferences(id: UUID):
+def delete_preferences(id: UUID, auth: str = Header(None)):
+    verify_jwt(auth)
+
     """Delete or reset user preferences."""
     user = get_user_by_id(id)
     if not user:
@@ -369,7 +404,7 @@ def delete_preferences(id: UUID):
 
 @app.get("/auth/login/google")
 async def login_with_google(request: Request):
-    redirect_uri = "https://composite-gateway-642518168067.us-east1.run.app/auth/callback/google"
+    redirect_uri = request.url_for("google_auth_callback")
     return await oauth.google.authorize_redirect(request, redirect_uri)
 
 @app.get("/auth/callback/google")
@@ -406,71 +441,26 @@ async def google_auth_callback(request: Request):
         user_id = db_user["id"]
 
     # 3. Create a session (same as before)
-    expires = datetime.utcnow().timestamp() + 3600
-    expires_at = datetime.utcfromtimestamp(expires)
-    session = insert_session(UUID(user_id), expires_at)
+    #expires = datetime.utcnow().timestamp() + 3600
+    #expires_at = datetime.utcfromtimestamp(expires)
+    #session = insert_session(UUID(user_id), expires_at)
 
-    # 4. Return session ID to the frontend
-    return {
-        "session_id": session["session_id"],
-        "expires_at": session["expires_at"],
-        "user_id": session["user_id"]
+    payload = {
+        "sub": user_id,
+        "email": email,
+        "exp": datetime.utcnow() + timedelta(hours=1)
     }
+    jwt_token = jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGO)
 
+    # 4. Return JWT to the frontend, frontend should include Authorization: Bearer <token> in requests
+    return {"jwt": jwt_token}
 
+'''"session_id": session["session_id"],
+        "expires_at": session["expires_at"],
+        "user_id": session["user_id"],'''
 
-"""@app.post("/auth/register", response_model=UserRead, status_code=201)
-def register_user(user: UserCreate):
-    # Check if username is already taken
-    existing = get_user_by_username(user.username)
-    if existing:
-        raise HTTPException(status_code=400, detail="Username already exists")
-        
-    # Create user and hash password
-    hashed_pw = hash_password(user.password)
-    new_user_row = insert_user(user, hashed_pw)
-
-    return UserRead(
-    id=UUID(new_user_row["id"]),
-    username=new_user_row["username"],
-    age=new_user_row["age"],
-    occupation=new_user_row["occupation"],
-    location=new_user_row["location"],
-    created_at=new_user_row["created_at"],
-    updated_at=new_user_row["updated_at"],
-    )
-
-@app.post("/auth/login")
-def login_user(credentials: LoginRequest):
-    username = credentials.username
-    password = credentials.password
-
-    if not username or not password:
-        raise HTTPException(status_code=400, detail="Username and password required")
-        
-    # Find user by username
-    user_row = get_user_by_username(username)
-    if not user_row:
-        raise HTTPException(status_code=401, detail="Invalid credentials")
-        
-    # Verify password
-    if not verify_password(password, user_row["password_hash"].encode()):
-        raise HTTPException(status_code=401, detail="Invalid credentials")
-        
-    # Create new session
-    expires = datetime.utcnow().timestamp() + 3600  # 1 hour
-    expires_at = datetime.utcfromtimestamp(expires)
-
-    new_session = insert_session(UUID(user_row["id"]), expires_at)
-
-    return {
-        "message": "Login successful",
-        "session_id": new_session["session_id"],
-        "expires_at": new_session["expires_at"],
-        "user_id": new_session["user_id"],
-    } """
-
-@app.post("/auth/logout", status_code=204)
+# logout no longer needed because JWT has no server-side record
+'''@app.post("/auth/logout", status_code=204)
 def logout_user(
     auth: str = Header(
         ...,
@@ -494,41 +484,29 @@ def logout_user(
 
     # Delete session
     delete_session(session_id)
-    return Response(status_code=204)
+    return Response(status_code=204)'''
 
 @app.get("/auth/me", response_model=UserRead)
-def get_current_user(
-        auth: str = Header(
-        ...,
-        description="Token containing your session ID",
-        example="Bearer 123e4567-e89b-12d3-a456-426614174000"
-    )):
-    """Return the current authenticated user's profile."""
-    if not auth:
-        raise HTTPException(status_code=401, detail="Missing Authorization header")
-    
-    try:
-        session_id = UUID(auth.split(" ")[1])
-    except Exception:
-        raise HTTPException(status_code=400, detail="Invalid Authorization format")
+def get_current_user(auth: str = Header(...)):
+    decoded = verify_jwt(auth)
+    # return decoded
+    user_id = decoded["sub"]
 
-    session = get_session_by_id(session_id)
-
-    if not session:
-        raise HTTPException(status_code=401, detail="Invalid or expired session")
-
-    # Check expiry
-    if session["expires_at"] < datetime.utcnow():
-        delete_session(session_id)
-        raise HTTPException(status_code=401, detail="Session expired")
-
-    # Return user info
-    user_row = get_user_by_id(UUID(session["user_id"]))
-    if not user_row:
+    user = get_user_by_id(UUID(user_id))
+    if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
-    return UserRead(**user_row)
+    return UserRead(**user)
 
+# @app.get("/auth/debug-jwt")
+# def debug_jwt():
+#     payload = {
+#         "sub": "test-user-id",
+#         "email": "test@example.com",
+#         "exp": datetime.utcnow() + timedelta(minutes=10)
+#     }
+#     token = jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGO)
+#     return {"jwt": token}
 
 # -----------------------------------------------------------------------------
 # Health endpoints
