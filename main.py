@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dotenv import load_dotenv
+load_dotenv()
 import hashlib
 import os
 import socket
@@ -27,21 +29,35 @@ import my_secrets
 
 GOOGLE_CLIENT_ID = my_secrets.GOOGLE_CLIENT_ID
 GOOGLE_CLIENT_SECRET = my_secrets.GOOGLE_CLIENT_SECRET
-SESSION_SECRET_KEY = my_secrets.SECRET_KEY
-JWT_SECRET = my_secrets.JWT_SECRET  
+SESSION_SECRET_KEY = my_secrets.SESSION_SECRET_KEY
+JWT_SECRET = my_secrets.JWT_SECRET
 REDIRECT_URI = "https://composite-gateway-642518168067.us-east1.run.app/auth/callback/google"
 JWT_ALGO = "HS256"
 
+# NEW: issuer / audience for JWT validation
+JWT_ISSUER = "user-management-service"
+JWT_AUDIENCE = "nyc-study-spots"
+
+# NEW: DB config from environment instead of hard-coded root credentials
+DB_HOST = os.environ.get("USER_DB_HOST")
+DB_USER = os.environ.get("USER_DB_USER")
+DB_PASSWORD = os.environ.get("USER_DB_PASSWORD")
+DB_NAME = os.environ.get("USER_DB_NAME", "user_management")
+DB_PORT = int(os.environ.get("USER_DB_PORT", "3306"))
+
 
 def get_connection():
+    if not (DB_HOST and DB_USER and DB_PASSWORD and DB_NAME):
+        # Fail fast if DB config is missing/misconfigured
+        raise HTTPException(status_code=500, detail="Database configuration is incomplete")
     return mysql.connector.connect(
-        host="10.38.80.5",
-        user="root",
-        password="root-password",
-        database="user_management",
-        port=3306,
+        host=DB_HOST,
+        user=DB_USER,
+        password=DB_PASSWORD,
+        database=DB_NAME,
+        port=DB_PORT,
     )
-    
+
 
 def execute_query(query, params=None, fetchone=False, fetchall=False, commit=False):
     conn = get_connection()
@@ -57,8 +73,10 @@ def execute_query(query, params=None, fetchone=False, fetchall=False, commit=Fal
     finally:
         cursor.close()
         conn.close()
-    
-Session = get_connection()
+
+
+# REMOVED: this held a permanent DB connection and wasn't used
+# Session = get_connection()
 
 port = int(os.environ.get("FASTAPIPORT", 8000))
 
@@ -70,7 +88,7 @@ app = FastAPI(
 app.add_middleware(
     SessionMiddleware,
     secret_key=SESSION_SECRET_KEY,
-    https_only=True,        
+    https_only=True,
     same_site="lax"
 )
 
@@ -97,7 +115,14 @@ def verify_jwt(auth_header: str):
         token = auth_header
 
     try:
-        decoded = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGO])
+        # NEW: enforce issuer + audience + exp
+        decoded = jwt.decode(
+            token,
+            JWT_SECRET,
+            algorithms=[JWT_ALGO],
+            audience=JWT_AUDIENCE,
+            issuer=JWT_ISSUER,
+        )
         return decoded
     except jwt.ExpiredSignatureError:
         raise HTTPException(status_code=401, detail="Token expired")
@@ -337,6 +362,10 @@ async def google_auth_callback(request: Request):
     if not user_info:
         raise HTTPException(status_code=400, detail="Invalid Google login")
 
+    # NEW: require verified Google email
+    if not user_info.get("email_verified", False):
+        raise HTTPException(status_code=400, detail="Google email is not verified")
+
     google_id = user_info["sub"]
     email = user_info["email"]
     name = user_info.get("name")
@@ -359,10 +388,14 @@ async def google_auth_callback(request: Request):
     else:
         user_id = db_user["id"]
 
+    now = datetime.utcnow()
     payload = {
         "sub": user_id,
         "email": email,
-        "exp": datetime.utcnow() + timedelta(hours=1)
+        "iss": JWT_ISSUER,
+        "aud": JWT_AUDIENCE,
+        "iat": now,
+        "exp": now + timedelta(hours=1),
     }
     jwt_token = jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGO)
 
