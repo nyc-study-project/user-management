@@ -34,11 +34,9 @@ JWT_SECRET = my_secrets.JWT_SECRET
 REDIRECT_URI = "https://composite-gateway-642518168067.us-east1.run.app/auth/callback/google"
 JWT_ALGO = "HS256"
 
-# NEW: issuer / audience for JWT validation
 JWT_ISSUER = "user-management-service"
 JWT_AUDIENCE = "nyc-study-spots"
 
-# NEW: DB config from environment instead of hard-coded root credentials
 DB_HOST = os.environ.get("USER_DB_HOST")
 DB_USER = os.environ.get("USER_DB_USER")
 DB_PASSWORD = os.environ.get("USER_DB_PASSWORD")
@@ -73,10 +71,6 @@ def execute_query(query, params=None, fetchone=False, fetchall=False, commit=Fal
     finally:
         cursor.close()
         conn.close()
-
-
-# REMOVED: this held a permanent DB connection and wasn't used
-# Session = get_connection()
 
 port = int(os.environ.get("FASTAPIPORT", 8000))
 
@@ -115,7 +109,6 @@ def verify_jwt(auth_header: str):
         token = auth_header
 
     try:
-        # NEW: enforce issuer + audience + exp
         decoded = jwt.decode(
             token,
             JWT_SECRET,
@@ -362,7 +355,6 @@ async def google_auth_callback(request: Request):
     if not user_info:
         raise HTTPException(status_code=400, detail="Invalid Google login")
 
-    # NEW: require verified Google email
     if not user_info.get("email_verified", False):
         raise HTTPException(status_code=400, detail="Google email is not verified")
 

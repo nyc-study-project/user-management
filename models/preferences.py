@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 
 '''1-to-1 with users meaning one preference set belongs to one user'''
 
-'''Shared core fields for all models, open to changes to these fields since I was a bit unsure about it'''
+'''Shared core fields for all models'''
 class PreferencesBase(BaseModel):
     wifi_required: Optional[bool] = Field(
         None,
