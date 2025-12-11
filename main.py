@@ -448,59 +448,6 @@ async def google_auth_callback(request: Request):
         "jwt": jwt_token
     }
 
-
-
-"""@app.post("/auth/register", response_model=UserRead, status_code=201)
-def register_user(user: UserCreate):
-    # Check if username is already taken
-    existing = get_user_by_username(user.username)
-    if existing:
-        raise HTTPException(status_code=400, detail="Username already exists")
-        
-    # Create user and hash password
-    hashed_pw = hash_password(user.password)
-    new_user_row = insert_user(user, hashed_pw)
-
-    return UserRead(
-    id=UUID(new_user_row["id"]),
-    username=new_user_row["username"],
-    age=new_user_row["age"],
-    occupation=new_user_row["occupation"],
-    location=new_user_row["location"],
-    created_at=new_user_row["created_at"],
-    updated_at=new_user_row["updated_at"],
-    )
-
-@app.post("/auth/login")
-def login_user(credentials: LoginRequest):
-    username = credentials.username
-    password = credentials.password
-
-    if not username or not password:
-        raise HTTPException(status_code=400, detail="Username and password required")
-        
-    # Find user by username
-    user_row = get_user_by_username(username)
-    if not user_row:
-        raise HTTPException(status_code=401, detail="Invalid credentials")
-        
-    # Verify password
-    if not verify_password(password, user_row["password_hash"].encode()):
-        raise HTTPException(status_code=401, detail="Invalid credentials")
-        
-    # Create new session
-    expires = datetime.utcnow().timestamp() + 3600  # 1 hour
-    expires_at = datetime.utcfromtimestamp(expires)
-
-    new_session = insert_session(UUID(user_row["id"]), expires_at)
-
-    return {
-        "message": "Login successful",
-        "session_id": new_session["session_id"],
-        "expires_at": new_session["expires_at"],
-        "user_id": new_session["user_id"],
-    } """
-
 @app.post("/auth/logout", status_code=204)
 def logout_user(
     auth: str = Header(
