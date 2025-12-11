@@ -3,8 +3,9 @@ from __future__ import annotations
 import hashlib
 import os
 import socket
-from datetime import datetime
+from datetime import datetime, timedelta
 import json
+import jwt
 
 from typing import List
 from uuid import UUID, uuid4
@@ -27,6 +28,8 @@ import my_secrets
 GOOGLE_CLIENT_ID = my_secrets.GOOGLE_CLIENT_ID
 GOOGLE_CLIENT_SECRET = my_secrets.GOOGLE_CLIENT_SECRET
 SESSION_SECRET_KEY = my_secrets.SECRET_KEY
+JWT_SECRET = my_secrets.JWT_SECRET  
+JWT_ALGO = "HS256"
 
 # replace this with direct connection to Cloud SQL using private IP already in VM's version of user_management
 '''def get_connection():
@@ -54,6 +57,8 @@ SESSION_SECRET_KEY = my_secrets.SECRET_KEY
 
 def get_connection():
     """Direct connection to Cloud SQL using private IP."""
+    # if os.environ.get("ENV") == "local":
+    #     return None
     return mysql.connector.connect(
         host="10.38.80.5",            # Cloud SQL private IP
         user="root",
@@ -115,6 +120,24 @@ def hash_password(password: str) -> bytes:
 
 def verify_password(password: str, hashed: bytes) -> bool:
     return bcrypt.checkpw(password.encode("utf-8"), hashed)
+
+def verify_jwt(auth_header: str):
+    if not auth_header:
+        raise HTTPException(status_code=401, detail="Missing Authorization header")
+
+    # Accept "Bearer <token>" or just "<token>"
+    if auth_header.startswith("Bearer "):
+        token = auth_header.split(" ")[1]
+    else:
+        token = auth_header  # raw token
+
+    try:
+        decoded = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGO])
+        return decoded
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Token expired")
+    except jwt.InvalidTokenError:
+        raise HTTPException(status_code=401, detail="Invalid token")
 
 # -----------------------------------------------------------------------------
 # Database helpers for users
@@ -410,11 +433,19 @@ async def google_auth_callback(request: Request):
     expires_at = datetime.utcfromtimestamp(expires)
     session = insert_session(UUID(user_id), expires_at)
 
+    payload = {
+        "sub": user_id,
+        "email": email,
+        "exp": datetime.utcnow() + timedelta(hours=1)
+    }
+    jwt_token = jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGO)
+
     # 4. Return session ID to the frontend
     return {
         "session_id": session["session_id"],
         "expires_at": session["expires_at"],
-        "user_id": session["user_id"]
+        "user_id": session["user_id"], 
+        "jwt": jwt_token
     }
 
 
@@ -496,6 +527,18 @@ def logout_user(
     delete_session(session_id)
     return Response(status_code=204)
 
+@app.get("/auth/me-jwt", response_model=UserRead)
+def get_current_user_jwt(auth: str = Header(...)):
+    decoded = verify_jwt(auth)
+    # return decoded
+    user_id = decoded["sub"]
+
+    user = get_user_by_id(UUID(user_id))
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    return UserRead(**user)
+
 @app.get("/auth/me", response_model=UserRead)
 def get_current_user(
         auth: str = Header(
@@ -529,6 +572,15 @@ def get_current_user(
 
     return UserRead(**user_row)
 
+# @app.get("/auth/debug-jwt")
+# def debug_jwt():
+#     payload = {
+#         "sub": "test-user-id",
+#         "email": "test@example.com",
+#         "exp": datetime.utcnow() + timedelta(minutes=10)
+#     }
+#     token = jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGO)
+#     return {"jwt": token}
 
 # -----------------------------------------------------------------------------
 # Health endpoints
